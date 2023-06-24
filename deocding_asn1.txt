@@ -1,0 +1,103 @@
+ldap start is 0x30
+then message length: 0x2d = 2x16 + 13 = 45
+then 02 01 01 = MESSAGE ID
+
+
+30 - expect 2d 2 1 1  TOTAL size of packet is 46 chars
+60 28 - exepect 40 more chars
+80 07 - exepect 7 chars for the password
+
+30 2d
+  02 01 01
+  60 28
+    01 03 
+    04 1a
+      63 3d ...
+    80 07
+      72 61 ... 6b
+
+get 30 wait for 02 01 01
+get 60
+  
+
+00000000  30 2d 02 01 01 60 28 02  01 03 04 1a 63 6e 3d 61  |0-...`(.....cn=a|
+00000010  64 6d 69 6e 2c 64 63 3d  72 61 68 61 73 61 6b 2c  |dmin,dc=rahasak,|
+00000020  64 63 3d 63 6f 6d 80 07  72 61 68 61 73 61 6b     |dc=com..rahasak|
+
+
+Protocol syntax:
+Element is Type, Length and Value
+* NOTE: if Type is Constructed, Length is total # octets (bytes), Value is the actual sequence of elements
+Parsing strategy
+1) Get Type
+2) Get Length
+3a) If Type is constructed Indent the next Elelments - there is no Value
+3b) If Type is primitive, print it's value - using primitive_decode()
+4) Offset parsing. If Type is constructed, offset 1.  If TYpe is primitice, offset length of primitive.
+
+
+type_decode():
+bits:
+76    5       43211
+|     |       |
+|     |       --- Tag Number
+|     ----------- Primitive or Consructed
+----------------- Class
+Class 00 = Universal - means the same thing for all applications
+Class 01 = Application - meaning depnends on applicaiton
+Class 10 = Context Specific - meaning depneds on where it is used in the sequence
+Class 11 = Private - Unlikely in LDAP
+
+Primitive/Constructed 0 = Primitive (Null, Boolean, Integer, Octet String, Enumerated)
+Primitive/Constructed 1 = Complex - concatenation of 0 or more BER elements
+
+Tag Number - differeetes between different values in this element class
+
+
+
+
+
+then 60 28 good at this point
+
+
+
+
+30 2d 02 01 01 
+60 - BIND 
+
+28 02  01 03 04 1a 63 6e 3d 61
+
+
+TYPE      0x60 = application class,   
+LENGTH    0x28
+VALUE
+
+
+
+
+0x60
+84 2 1  8421
+01 1 0  0000
+APPLICTION CLASS 01
+CONSTRUCTERD
+TAG 0
+
+
+0x28
+0010 1000
+2x16 + 8 = 40 bytes
+
+
+|0-...`(.....cn=a|    0x60 0x28 (length) 0x02 0x01 0x3 0x4 cn=admin,
+|dmin,dc=rahasak,|
+|dc=com..rahasak|    dc=rahask,dc=com 0x80 0x7 rahasak
+
+2 1 3
+2 = primitive integer, length 1, value 3
+4 1a string
+4 = octect string 
+1a is length of string = 26
+
+0x80 application code b10 0 00000 context specific - must be password
+0x7  7 bytes
+string - password

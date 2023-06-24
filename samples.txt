@@ -1,0 +1,30 @@
+curl -v \
+  -u "cn=admin,dc=rahasak,dc=com":rahasak \
+  "localhost:389/ldap1/dc=rahasak,dc=com??sub?(objectclass=*"
+  
+  
+  curl --header "Content-Type: application/json" \
+  --request POST \
+  --data '{"username":"xyz","password":"xyz"}' \
+  http://localhost:8000
+
+
+nginx default config:
+ROUTES:
+  localhost:5000/ldap1 
+    TO
+  localhost:8000
+
+NEED TO PUT IN THE HEADER UPDATING CODE !!!!
+
+server {
+       listen 5000;
+       listen [::]:5000;
+       server_name localhost;
+       access_log /var/log/ldap1.log;
+
+       location /ldap1 {
+                      proxy_pass http://localhost:8000/;
+      }
+}
+
