@@ -1,0 +1,32 @@
+# echo-client.py
+
+import socket
+
+#HOST = "192.168.128.1"  # The server's hostname or IP address
+HOST = "158.117.27.97"  # The server's hostname or IP address
+PORT = 2000  # The port used by the server
+
+out_ar = [0x30, 0x2d, 0x2, 0x1, 0x1, 0x60, 0x28, 0x2, 0x1,
+ 0x3, 0x4, 0x1a, 0x63, 0x6e, 0x3d, 0x61, 0x64, 0x6d, 0x69,
+ 0x6e, 0x2c, 0x64, 0x63, 0x3d, 0x72, 0x61, 0x68, 0x61, 0x73,
+ 0x61, 0x6b, 0x2c, 0x64, 0x63, 0x3d, 0x63, 0x6f, 0x6d, 0x80,
+ 0x7, 0x72, 0x61, 0x68, 0x61, 0x73, 0x61, 0x6b]
+
+def print_binary(bf):
+    for i in range(len(bf)):
+        print(hex(bf[i]), end=' ')
+    print()
+    
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.connect((HOST, PORT))
+    cmd = bytes([int(x) for x in out_ar])
+    print('Send:')
+    print_binary(cmd)
+    s.sendall(cmd)
+    # get response
+    msg = s.recv(1024)
+    if msg:
+        print('Received:')
+        print_binary(msg)
+
+print("Done")
