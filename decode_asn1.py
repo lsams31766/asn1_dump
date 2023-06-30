@@ -2,6 +2,11 @@
 # see https://ldap.com/ldapv3-wire--reference-asn1-ber/?amp
 
 '''
+Command line options
+None - verbose output to terminal
+-q: Only show Application Commands, integers, booleans and strings
+
+
 Protocol syntax:
 Element is Type, Length and Value
 * NOTE: if Type is Constructed, Length is total # octets (bytes), Value is the actual sequence of elements
@@ -36,6 +41,9 @@ EXAMPLE:
 00000020  64 63 3d 63 6f 6d 80 07  72 61 68 61 73 61 6b     |dc=com..rahasak|
 '''
 #ASN1_FILE = 'my_file'
+from _ast import If
+quiet_output = False
+prev_cmd = 'MISSING'
 
 d_types = {
     0:'UNIVERSAL',
@@ -59,19 +67,69 @@ d_univeral_types = {
 }
 
 d_application_types = {
-# partial list ...
     0x60: 'BIND REQUEST',
     0x61: 'BIND RESPONSE',
     0x42: 'UNBIND REQUEST',
     0x63: 'SEARCH REQUEST',
-    0x64: 'SEARCH RESULT'
+    0x64: 'SEARCH RESULT',
+    0x65: 'SEARCH_RESULT_DONE_PROTOCOL',
+    0x66: 'MODIFY_REQUEST_PROTOCOL',
+    0x67: 'MODIFY_RESPONSE_PROTOCOL',
+    0x68: 'ADD_REQUEST_PROTOCOL',
+    0x69: 'ADD_RESPONSE_PROTOCOL',
+    0x4a: 'DELETE_REQUEST_PROTOCOL',
+    0x6b: 'DELETE_RESPONSE_PROTOCOL',
+    0x6c: 'MODIFY_DN_REQUEST_PROTOCOL',
+    0x6d: 'MODIFY_DN_RESPONSE_PROTOCOL',
+    0x6e: 'COMPARE_REQUEST_PROTOCOL',
+    0x6f: 'COMPARE_RESPONSE_PROTOCOL',
+    0x50: 'ABANDON_REQUEST_PROTOCOL',
+    0x73: 'SEARCH_RESULT_REFERENCE_PROTOCOL',
+    0x77: 'EXTENDED_REQUEST_PROTOCOL',
+    0x78: 'EXTENDED_RESPONSE_PROTOCOL',
+    0x79: 'INTERMEDIATE_RESPONSE_PROTOCOL',
+    0x6A: 'UNKNOWN_APP_TYPE_0X6A',
+    0X43: 'UKNOWN_APP_TYPE_0X43',
+    0X75: 'UKNOWN_APP_TYPE_0X75',
+    0X53: 'UKNOWN_APP_TYPE_0X53',
 }
+
 
 d_context_types = { 
     # guessing at these values
-    0x80: 'PASSWORD'
+    0x80: 'PASSWORD',
+    0x87: "UNKNOWN_CONTEXT_0X87"
 }
 
+d_response_codes = {
+    0x0: 'SUCCESS'
+}
+
+d_search_req_1_codes = {
+  0: 'SCOPE_BASE_OBJECT',
+  1: 'SCOPE_ONE_LEVEL',
+  2: 'SCOPE_SUBTREE',
+}
+
+d_search_req_2_codes = {
+  0: 'NEVER_DEREF_ALIASES',
+  1: 'DEREF_IN_SEARCHING',
+  2: 'DEREF_BASE_OBJECT',
+  3: 'DEREF_ALWAYS',
+}
+
+d_search_req_3_codes = {
+  0xa0: 'FILTER_AND',
+  0xa1: 'FILTER_OR',
+  0xa2: 'FILTER_NOT',
+  0xa3: 'FILTER_EQUALITY',
+  0xa4: 'FILTER_SUBSTRINGS',
+  0xa5: 'FILTER_GE',
+  0xa6: 'FILTER_LE',
+  0xa7: 'FILTER_PRESENT',
+  0xa8: 'FILTER_APPROX',
+  0xa9: 'FILTER_EXT'
+}
 
 
 def decode_type(data):
@@ -82,6 +140,8 @@ def decode_type(data):
     return asn_class, prim_constructed, tag_number
 
 def print_primitive(data, pos, u_type, asn_length):
+    if asn_length == 0:
+        return
     if u_type == 'Integer':
         for i in range(asn_length):
             print(data[pos + i], end = ' ')
@@ -90,48 +150,150 @@ def print_primitive(data, pos, u_type, asn_length):
         for i in range(asn_length):
             s += chr(data[pos + i])
         print(s, end = ' ')
+    if u_type == 'Boolean':
+        for i in range(asn_length):
+            print(data[pos + i], end = ' ')
     print()
+    
+def get_asn1_length(data,pos):
+    # if bit 8 of data[pos] == 0, simpole 1 byte length
+    # if bit 8 of data[bos] == 1, multi bye length
+    #    next byte is number of length bytes,  
+    #    next n bytes are total length
+    if data[pos] >> 7 == 0: # simple length
+        return data[pos],1
+    nbr_bytes = data[pos] - 0x80
+    length_list = data[pos + 1:pos + nbr_bytes + 1]
+    total = 0
+    mult = 1
+    for x in length_list[::-1]:
+        total += mult * x
+        mult = mult * 256
+    # return asn_length and number of bytes this length took up
+    return total + 1,nbr_bytes + 1 # need to add the nbr_of_length_bytes byte
+
+def get_enumated_value(data, pos):
+    global prev_cmd
+    value = 'UNKNOWN'
+    if prev_cmd == 'BIND RESPONSE':
+        value = d_response_codes.get(data[pos],'UNKNOWN')
+        return value
+    if prev_cmd == 'SEARCH REQUEST':
+        value = d_search_req_1_codes.get(data[pos],'UNKNOWN') 
+        prev_cmd = 'SR1' # indicate get next enum
+        return value
+    if prev_cmd == 'SR1':
+        value = d_search_req_2_codes.get(data[pos],'UNKNOWN') 
+        prev_cmd = 'SR2' # indicate get next enum
+        return value
+    if prev_cmd == 'SR2':
+        value = d_search_req_3_codes.get(data[pos],'UNKNOWN') 
+        prev_cmd = 'SR3' # indicate get next enum
+        return value
+    if prev_cmd =='SEARCH_RESULT_DONE_PROTOCOL':
+        value = d_response_codes.get(data[pos],'UNKNOWN')
+    return value
 
 def parse_next(data, pos):
+    global prev_cmd
     a,p,t = decode_type(data[pos])
-    print (hex(data[pos]),a,p,t)
-    asn_length = data[pos+1]
+    #print (hex(data[pos]),a,p,t)
+    try:
+        asn_length, asn_nbr_bytes = get_asn1_length(data,pos+1)
+    except:
+        print('END OF FILE')
+        exit(0)
     if data[pos] in d_univeral_types:
         u_type = d_univeral_types[data[pos]]
-        print('u_type is ',u_type)
+        # print('u_type is ',u_type)
         if u_type == 'Sequence':    
-            print(f'Type: {u_type} - Length: {asn_length}')
-            return pos + 2
+            if not quiet_output:
+                print(f'Type: {u_type} - Length: {asn_length}')
+            return pos + 1 + asn_nbr_bytes
+        if u_type == 'Set':
+            if not quiet_output:
+                print(f'Type: {u_type} - Length: {asn_length}')
+            return pos + 1 + asn_nbr_bytes
         if u_type in ['Boolean','Integer','Octet String']:
-            print(f'Type: {u_type} - Length: {asn_length} - Value: ', end = '')
+            if not quiet_output:
+                print(f'Type: {u_type} - Length: {asn_length} - Value: ', end = '')
+            else:
+                if asn_length > 0:
+                    if u_type != 'Octet String':
+                        print(f'   {u_type}: ',end='')
+                    else:
+                        print('   ',end='')
             print_primitive(data,pos+2,u_type,asn_length)
-            return pos + 2 + asn_length
+            return pos + 1 + asn_nbr_bytes + asn_length
+        if u_type == 'Enumerated':
+            value = get_enumated_value(data, pos+2)
+            if not quiet_output:
+                print(f'Type: {u_type} Value: {value}')
+            else:
+                print(f'   {u_type}: {value}')
+            return pos + 1 + asn_nbr_bytes + asn_length
 
     if d_types[a] == 'APPLICATION':
-        u_type = d_application_types[data[pos]]
-        print(f'Application Type: {u_type} - Length: {asn_length}')
-        return pos + 2
-
+        u_type = d_application_types.get(data[pos],'MISSING')
+        prev_cmd = u_type
+        if u_type == 'MISSING':
+            print('MISSING APP TYPE',hex(data[pos]))
+            return pos + 1 + asn_nbr_bytes
+        print(f'Application Type: {u_type}', end=' ')
+        if quiet_output:
+            print()
+        else:
+            print(f'- Length: {asn_length}')
+        return pos + 1 + asn_nbr_bytes
+    
     if d_types[a] == 'CONTEXT':
-        u_type = d_context_types[data[pos]]
+        u_type = d_context_types.get(data[pos],'MISSING')
+        if u_type == 'MISSING':
+            print('MISSING context type',data[pos])
+            return pos + 2 + asn_length
         if u_type == 'PASSWORD':
-            print(f'Application Type: {u_type} - ', end = '')
+            if not quiet_output:
+                print(f'Application Type: {u_type} - ', end = '')
+            else:
+                print('   PASSWORD',end = ' ')
             print_primitive(data,pos+2,'Octet String',asn_length)
             return pos + 2 + asn_length 
-        print(f'Application Type: {u_type} - Length: {asn_length}')
-        return pos + 2
+        print(f'Application Type: {u_type}', end = ' ')
+        if quiet_output:
+            print()
+        else: 
+            print('- Length: {asn_length}')
+        return pos + 2 + asn_length
+    
+    if d_types[a] == 'PRIVATE':
+        value_list = data[pos + 2:pos+2+asn_length]
+        print(f'Type: {d_types[a]} Length: {asn_length} value: {value_list}')
+        return pos + 2 + asn_length
 
     print(f'Type: {d_types[a]} - {d_prim_constructed[p]} - Tag #: {t} - length: {asn_length}')
     return pos + 2
 
 
 # Input data is bytearray form the socket
-def decode(encoded_bytes):
+def decode(encoded_bytes, args):
+    count = 0
+    next_pos = 0
+    global quiet_output
+    quiet_output = args.quiet
     try:
         data = [int(x) for x in encoded_bytes]
         next_pos = 0
         while next_pos < len(data):    
+            if not quiet_output:
+                print(f'{count}: addr:{hex(next_pos)} ',end='')
+            #if count == 44:
+                #print('check this')
             next_pos = parse_next(data,next_pos)
+            count += 1
     except:
         print('Bad asn1 encoded_bytes')
+        print(f'Total commands: {count}')
+        exit(1)
+    print('DONE')
+    print(f'Total commands: {count}')
         

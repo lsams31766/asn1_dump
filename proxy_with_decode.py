@@ -10,6 +10,7 @@ import select
 import time
 import sys
 from decode_asn1 import decode
+import argparse
 
 # Changing the buffer_size and delay, you can improve the speed and bandwidth.
 # But when buffer get to high or delay go too down, you can broke things
@@ -17,6 +18,7 @@ buffer_size = 4096
 delay = 0.0001
 CAPTURE_FILE = 'capture.bin'
 forward_to = ('158.117.27.97', 1389)
+CLIENT_PORT = 2000
 
 def save_data(data):
     f = open(CAPTURE_FILE, 'ab')
@@ -46,8 +48,9 @@ class TheServer:
         self.server.bind((host, port))
         self.server.listen()
 
-    def main_loop(self):
+    def main_loop(self, args):
         self.input_list.append(self.server)
+        self.args = args
         while 1:
             time.sleep(delay)
             ss = select.select
@@ -97,14 +100,22 @@ class TheServer:
         # here we can parse and/or modify the data before send forward
         #print data
         print(f'on_recv len data {len(data)}')
-        decode(data)
+        decode(data, self.args)
         save_data(data)
         self.channel[self.s].send(data)
 
 if __name__ == '__main__':
-        server = TheServer('', 2000)
-        try:
-            server.main_loop()
-        except KeyboardInterrupt:
-            print ("Ctrl C - Stopping server")
-            sys.exit(1)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-q", "--quiet", action="store_true")
+
+    args = parser.parse_args()
+    print(f'quiet_output is {args.quiet}')
+    print(f'Listening on port: {CLIENT_PORT}')
+    print(f'Fowarding to {forward_to[0]}:{forward_to[1]}')
+    
+    server = TheServer('', CLIENT_PORT)
+    try:
+        server.main_loop(args)
+    except KeyboardInterrupt:
+        print ("Ctrl C - Stopping server")
+        sys.exit(1)
