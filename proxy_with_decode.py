@@ -17,8 +17,13 @@ import argparse
 buffer_size = 4096
 delay = 0.0001
 CAPTURE_FILE = 'capture.bin'
-forward_to = ('158.117.27.97', 1389)
-CLIENT_PORT = 2000
+#forward_to = ('158.117.27.97', 1389)
+#forward_to = ('165.89.206.184', 389)
+# metaview uat
+forward_to = ('165.89.207.119', 389)
+
+#CLIENT_PORT = 392
+CLIENT_PORT = 392
 
 def save_data(data):
     f = open(CAPTURE_FILE, 'ab')

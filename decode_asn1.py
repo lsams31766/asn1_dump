@@ -98,7 +98,8 @@ d_application_types = {
 d_context_types = { 
     # guessing at these values
     0x80: 'PASSWORD',
-    0x87: "UNKNOWN_CONTEXT_0X87"
+    0x87: "UNKNOWN_CONTEXT_0X87",
+    0xA3: 'SEARCH_CRITERIA'
 }
 
 d_response_codes = {
@@ -139,21 +140,51 @@ def decode_type(data):
     tag_number = data & (0x1f)
     return asn_class, prim_constructed, tag_number
 
-def print_primitive(data, pos, u_type, asn_length):
-    if asn_length == 0:
+def u_type_to_int(u_type):
+    #d_univeral_types
+    for k,v in d_univeral_types.items():
+        if v == u_type:
+            return k 
+    return 0
+
+old_buffer = [] # inter packet saving of data
+old_type = 0
+old_length = 0
+def print_primitive(data, pos, u_type, asn_length, new_line=True):
+    # ISSUE - if packet ends before printing all chars, we have chars left over in next packt
+    # need some way to stick old pack to new packet - save old_buffer concept?
+    global old_buffer, old_type, old_length
+    if pos + asn_length > len(data):
+        old_buffer = data[pos:]
+        old_type = u_type_to_int(u_type)
+        old_length = asn_length
         return
-    if u_type == 'Integer':
-        for i in range(asn_length):
-            print(data[pos + i], end = ' ')
-    if u_type == 'Octet String':
-        s = ''
-        for i in range(asn_length):
-            s += chr(data[pos + i])
-        print(s, end = ' ')
-    if u_type == 'Boolean':
-        for i in range(asn_length):
-            print(data[pos + i], end = ' ')
-    print()
+
+    try:
+        if asn_length == 0:
+            return
+        if u_type == 'Integer':
+            for i in range(asn_length):
+                print(data[pos + i], end = ' ')
+        if u_type == 'Octet String':
+            s = ''
+            for i in range(asn_length):
+                s += chr(data[pos + i])
+            print(s, end = ' ')
+        if u_type == 'Boolean':
+            for i in range(asn_length):
+                print(data[pos + i], end = ' ')
+        if new_line:
+            print()
+    except:
+        print('-->BAD data for print_primitive')
+        print('u_type',u_type,'asn_length',asn_length)
+        #data, pos, u_type, asn_length
+        last = pos + asn_length
+        while (pos < last) and (pos < len(data)): 
+            print(hex(data[pos]),end = ' ')
+            pos += 1
+        print()
     
 def get_asn1_length(data,pos):
     # if bit 8 of data[pos] == 0, simpole 1 byte length
@@ -193,6 +224,20 @@ def get_enumated_value(data, pos):
     if prev_cmd =='SEARCH_RESULT_DONE_PROTOCOL':
         value = d_response_codes.get(data[pos],'UNKNOWN')
     return value
+
+def print_search_criteria(data, pos, asn_length):
+    print('SEARCH_CRITERIA: ',end='')
+    processed = 0
+    end = pos + asn_length
+    first = pos 
+    while pos < end:
+        #print(hex(data[pos]), end=' ')
+        u_type = d_univeral_types[data[first]]
+        u_length = data[pos + 1]
+        pos += 2
+        print_primitive(data, pos, u_type, u_length, new_line=False)
+        pos += u_length
+    print('')
 
 def parse_next(data, pos):
     global prev_cmd
@@ -250,6 +295,16 @@ def parse_next(data, pos):
         u_type = d_context_types.get(data[pos],'MISSING')
         if u_type == 'MISSING':
             print('MISSING context type',data[pos])
+            # just parse as if known
+            return pos + 2
+            # print('LEN',data[pos+1])
+            # # print the data
+            # for i in range(asn_length):
+            #     print(hex(data[pos + 2 + i]),end=' ')
+            # print()
+            # return pos + 2 + asn_length
+        if u_type == 'SEARCH_CRITERIA':
+            print_search_criteria(data, pos+2, asn_length)
             return pos + 2 + asn_length
         if u_type == 'PASSWORD':
             if not quiet_output:
@@ -278,10 +333,28 @@ def parse_next(data, pos):
 def decode(encoded_bytes, args):
     count = 0
     next_pos = 0
-    global quiet_output
+    global quiet_output, old_buffer
     quiet_output = args.quiet
-    try:
+    if True:
+    #try:
         data = [int(x) for x in encoded_bytes]
+        # for TS print first 3 byte
+        #print('NEW BYTES',hex(data[0]),hex(data[1]),hex(data[2]))
+        if len(old_buffer) > 0:
+            # prepend old_buffer before new buffer
+            #print('----> APPEND OLD BUFFER <-----')
+            #print('old_buffer',old_buffer)
+            #print('old_type',old_type,'old_length',old_length)
+            temp = [old_type, old_length]
+            temp.extend(old_buffer)
+            #print('NEW TEMP',temp)
+            #print('append temp',len(temp),' to data',len(data))
+            temp.extend(data)
+            data = temp
+            #print('--> new data',data) 
+            #print('now NEW BYTES',hex(data[0]),hex(data[1]),hex(data[2]),hex(data[3]))
+            old_buffer = []
+            #print('----- APPEND DONE <-----')
         next_pos = 0
         while next_pos < len(data):    
             if not quiet_output:
@@ -290,10 +363,10 @@ def decode(encoded_bytes, args):
                 #print('check this')
             next_pos = parse_next(data,next_pos)
             count += 1
-    except:
-        print('Bad asn1 encoded_bytes')
-        print(f'Total commands: {count}')
-        exit(1)
+    #except:
+    #    print('Bad asn1 encoded_bytes')
+    #    print(f'Total commands: {count}')
+        #exit(1) # keep going anyway
     print('DONE')
     print(f'Total commands: {count}')
         
